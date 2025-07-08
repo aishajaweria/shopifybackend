@@ -27,27 +27,28 @@ app.post("/create-checkout-session", async (req, res) => {
 //session route
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-app.post("/webhook", express.raw({ type: 'application/json' }), (request, response) => {
-  const sig = request.headers['stripe-signature'];
+// Handle webhook before express.json()
+app.post("/webhook", express.raw({ type: 'application/json' }), (req, res) => {
+  const sig = req.headers['stripe-signature'];
   let event;
 
   try {
-    event = stripe.webhooks.constructEvent(request.body, sig, endpointSecret);
+    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
   } catch (err) {
-    console.log(err.message);
-    return response.status(400).send(`Webhook Error: ${err.message}`);
+    console.error("❌ Webhook Error:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // Handle successful payment
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
-
-    // ✅ Call Shopify Admin API here to create the order
     createShopifyOrder(session);
   }
 
-  response.status(200).send('Received');
+  res.status(200).send('Webhook received');
 });
+
+// After webhook, now apply json parser
+app.use(express.json());
 
 async function createShopifyOrder(session) {
   const shopifyToken = process.env.SHOPIFY_ADMIN_TOKEN;
@@ -83,6 +84,10 @@ async function createShopifyOrder(session) {
     console.error("❌ Shopify Order Creation Failed", error.response.data);
   }
 }
+app.get("/", (req, res) => {
+  res.send("✅ Shopify Stripe backend is working!");
+});
+
 app.listen(3000, () => {
   console.log("Server is running on port 3000");
 });
