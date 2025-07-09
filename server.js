@@ -51,20 +51,37 @@ async function createShopifyOrder(session) {
 
   try {
     await axios.post(
-     `https://luxenordique.myshopify.com/admin/api/2023-01/orders.json`,
-      orderData,
+      `https://luxenordique.com/admin/api/2023-01/draft_orders.json`,
+      {
+        draft_order: {
+          email: session.customer_details.email,
+          note: "Paid via Przelewy24 using Stripe Checkout",
+          line_items: [
+            {
+              title: "Stripe P24 Order",
+              price: session.amount_total / 100,
+              quantity: 1
+            }
+          ],
+          use_customer_default_address: true
+        }
+      },
       {
         headers: {
           'X-Shopify-Access-Token': shopifyToken,
           'Content-Type': 'application/json'
         }
       }
+
     );
-    console.log("✅ Shopify Order Created");
-  } catch (error) {
-    console.error("❌ Shopify Order Creation Failed", error.response.data);
   }
+  catch (error) {
+    console.error("❌ Shopify Order Creation Error:", error.message);
+    throw new Error("Failed to create Shopify order");
+  }
+  console.log("✅ Shopify order created successfully.");
 }
+
 app.post("/create-checkout-session", async (req, res) => {
   const { items, customer_email, total_amount } = req.body;
 
