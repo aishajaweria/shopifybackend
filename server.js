@@ -12,58 +12,64 @@ app.post("/create-checkout-session", async (req, res) => {
   const { items, customer_email, total_amount } = req.body;
 
   try {
-    const shippingOptions = [];
-
-    if (total_amount >= 15000) {
-      // Free shipping for orders >= 150 zł
-      shippingOptions.push({
-        shipping_rate_data: {
-          type: "fixed_amount",
-          fixed_amount: { amount: 0, currency: "pln" },
-          display_name: "Darmowa dostawa DPD",
-          delivery_estimate: {
-            minimum: { unit: "business_day", value: 3 },
-            maximum: { unit: "business_day", value: 8 }
-          }
-        }
-      });
-    } else {
-      // Paid shipping options for orders < 150 zł
-      shippingOptions.push(
-        {
-          shipping_rate_data: {
-            type: "fixed_amount",
-            fixed_amount: { amount: 3500, currency: "pln" },
-            display_name: "DPD – Dostawa ekspresowa",
-            delivery_estimate: {
-              minimum: { unit: "business_day", value: 2 },
-              maximum: { unit: "business_day", value: 5 }
-            }
-          }
-        },
-        {
-          shipping_rate_data: {
-            type: "fixed_amount",
-            fixed_amount: { amount: 2000, currency: "pln" },
-            display_name: "DPD – Dostawa standardowa",
-            delivery_estimate: {
-              minimum: { unit: "business_day", value: 3 },
-              maximum: { unit: "business_day", value: 8 }
-            }
-          }
-        }
-      );
-    }
+    const shippingOptions =
+      total_amount >= 15000 // Stripe uses amount in **cents**
+        ? [
+          {
+            shipping_rate_data: {
+              type: "fixed_amount",
+              fixed_amount: {
+                amount: 0,
+                currency: "pln",
+              },
+              display_name: "Darmowa dostawa DPD",
+              delivery_estimate: {
+                minimum: { unit: "business_day", value: 3 },
+                maximum: { unit: "business_day", value: 8 },
+              },
+            },
+          },
+        ]
+        : [
+          {
+            shipping_rate_data: {
+              type: "fixed_amount",
+              fixed_amount: {
+                amount: 2000, // 20 PLN
+                currency: "pln",
+              },
+              display_name: "DPD – Dostawa standardowa",
+              delivery_estimate: {
+                minimum: { unit: "business_day", value: 3 },
+                maximum: { unit: "business_day", value: 8 },
+              },
+            },
+          },
+          {
+            shipping_rate_data: {
+              type: "fixed_amount",
+              fixed_amount: {
+                amount: 3500, // 35 PLN
+                currency: "pln",
+              },
+              display_name: "DPD – Dostawa ekspresowa",
+              delivery_estimate: {
+                minimum: { unit: "business_day", value: 2 },
+                maximum: { unit: "business_day", value: 5 },
+              },
+            },
+          },
+        ];
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['p24'],
       mode: 'payment',
-      customer_email,
-      line_items: items,
       shipping_address_collection: {
-        allowed_countries: ['PL']
+        allowed_countries: ['PL'], // Poland only
       },
-      shipping_options: shippingOptions,
+      shipping_options: shippingOptions, // 👈 apply logic here
+      line_items: items,
+      customer_email,
       success_url: 'https://luxenordique.com/success',
       cancel_url: 'https://luxenordique.com/cart',
     });
