@@ -61,7 +61,7 @@ app.post("/create-checkout-session", async (req, res) => {
           },
         ],
     line_items: items,
-    success_url: 'https://luxenordique.com/success.html?session_id={CHECKOUT_SESSION_ID}',
+    success_url: 'https://luxenordique.com/pages/success?session_id={CHECKOUT_SESSION_ID}',
     cancel_url: 'https://luxenordique.com/cart',
   };
 
