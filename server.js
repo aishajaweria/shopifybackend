@@ -99,6 +99,7 @@ app.post("/webhook", express.raw({ type: 'application/json' }), (req, res) => {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
+    console.log("✅ Payment successful. Session ID:", session.id);
     createShopifyOrder(session);
   }
 
