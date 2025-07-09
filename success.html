@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Order Successful</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 40px;
+    }
+    .success-box {
+      max-width: 600px;
+      margin: auto;
+      border: 2px solid #ccc;
+      border-radius: 8px;
+      padding: 20px;
+    }
+    h1 {
+      color: green;
+    }
+    .order-info {
+      text-align: left;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="success-box">
+    <h1>🎉 Thank you! Your order was successful.</h1>
+    <p>Your payment has been confirmed.</p>
+    <div class="order-info" id="order-info">
+      Loading order details...
+    </div>
+    <a href="https://luxenordique.com" style="margin-top: 20px; display: inline-block;">Continue Shopping</a>
+  </div>
+
+  <script>
+    async function fetchOrderDetails() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const sessionId = urlParams.get('session_id');
+
+      if (!sessionId) {
+        document.getElementById("order-info").innerText = "No session ID found.";
+        return;
+      }
+
+      try {
+        const res = await fetch(`https://shopifybackend-production-669f.up.railway.app/order-details?session_id=${sessionId}`);
+        const data = await res.json();
+
+        if (data.error) throw new Error(data.error);
+
+        const container = document.getElementById("order-info");
+        container.innerHTML = `
+          <p><strong>Customer:</strong> ${data.customer_email}</p>
+          <p><strong>Amount Paid:</strong> ${(data.amount_total / 100).toFixed(2)} PLN</p>
+          <p><strong>Shipping:</strong> ${data.shipping_option}</p>
+          <p><strong>Products:</strong></p>
+          <ul>
+            ${data.items.map(i => `<li>${i.quantity} × ${i.description}</li>`).join('')}
+          </ul>
+        `;
+      } catch (err) {
+        document.getElementById("order-info").innerText = "Failed to load order details.";
+        console.error(err);
+      }
+    }
+
+    fetchOrderDetails();
+  </script>
+</body>
+</html>

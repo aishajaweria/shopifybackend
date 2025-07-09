@@ -61,7 +61,7 @@ app.post("/create-checkout-session", async (req, res) => {
           },
         ],
     line_items: items,
-    success_url: 'https://luxenordique.com/success',
+    success_url: 'https://shopifybackend-production-669f.up.railway.app/order-details?session_id=${sessionId}',
     cancel_url: 'https://luxenordique.com/cart',
   };
 
@@ -142,6 +142,34 @@ async function createShopifyOrder(session) {
     console.error("❌ Shopify Order Creation Failed", error.response.data);
   }
 }
+
+app.get("/order-details", async (req, res) => {
+  const sessionId = req.query.session_id;
+
+  if (!sessionId) {
+    return res.status(400).json({ error: "Missing session_id" });
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['line_items', 'shipping_cost'],
+    });
+
+    res.json({
+      customer_email: session.customer_details?.email || 'Not provided',
+      amount_total: session.amount_total,
+      shipping_option: session.shipping_cost?.shipping_rate?.display_name || 'Not selected',
+      items: session.line_items?.data.map(item => ({
+        description: item.description,
+        quantity: item.quantity
+      })) || [],
+    });
+  } catch (err) {
+    console.error("Order fetch error:", err);
+    res.status(500).json({ error: "Failed to retrieve order details" });
+  }
+});
+
 app.get("/", (req, res) => {
   res.send("✅ Shopify Stripe backend is working!");
 });
