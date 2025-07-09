@@ -51,7 +51,7 @@ async function createShopifyOrder(session) {
 
   try {
     await axios.post(
-      `https://luxenordique.com/admin/api/2023-01/orders.json`,
+     `https://luxenordique.myshopify.com/admin/api/2023-01/orders.json`,
       orderData,
       {
         headers: {
