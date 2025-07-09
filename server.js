@@ -86,11 +86,10 @@ app.post("/create-checkout-session", async (req, res) => {
 // Handle webhook before express.json()
 app.post("/webhook", express.raw({ type: 'application/json' }), (req, res) => {
   const sig = req.headers['stripe-signature'];
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
   let event;
 
   try {
-    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (err) {
     console.error("❌ Webhook Error:", err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
