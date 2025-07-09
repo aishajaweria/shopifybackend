@@ -24,7 +24,7 @@ app.post("/webhook", express.raw({ type: 'application/json' }), async (req, res)
 
     try {
       const session = await stripe.checkout.sessions.retrieve(rawSession.id, {
-        expand: ['shipping', 'customer_details'],
+        expand: ['line_items', 'shipping', 'customer_details'],
       });
 
       console.log("✅ Payment successful. Session ID:", session.id);
@@ -43,72 +43,94 @@ app.use(express.json());
 
 
 async function createShopifyOrder(session) {
-  console.log("Creating Shopify order for session:", session.id);
+  console.log("Creating LIVE Shopify order for session:", session.id);
 
   const shipping = session.shipping || {};
   const shippingAddress = shipping.address || {};
   const customerDetails = session.customer_details || {};
 
+  const [firstName = "", ...rest] = (shipping.name || "").split(" ");
+  const lastName = rest.join(" ") || "";
+
+  // ✅ Retrieve line items from Stripe session
+  let lineItems = [];
+
+  try {
+    const sessionWithItems = await stripe.checkout.sessions.retrieve(session.id, {
+      expand: ['line_items']
+    });
+
+    lineItems = sessionWithItems.line_items.data.map(item => ({
+      name: item.description || "Item",
+      quantity: item.quantity || 1,
+      price: item.amount_total / item.quantity / 100 || 0,
+    }));
+  } catch (err) {
+    console.warn("⚠️ Failed to expand line_items:", err.message);
+    lineItems = [{
+      name: "Stripe P24 Order",
+      quantity: 1,
+      price: session.amount_total / 100,
+    }];
+  }
+
+  // ✅ Format for Shopify order endpoint
   const orderData = {
-    draft_order: {
+    order: {
       email: customerDetails.email,
-      note: "Paid via Przelewy24 using Stripe Checkout",
-      customer: {
-        first_name: shipping.name?.split(' ')[0] || '',
-        last_name: shipping.name?.split(' ')[1] || '',
-        phone: customerDetails.phone || '',
-      },
+      financial_status: "paid", // Marks order as paid
+      send_receipt: true,
+      send_fulfillment_receipt: false,
+      line_items: lineItems.map(item => ({
+        title: item.name,
+        quantity: item.quantity,
+        price: item.price,
+      })),
       shipping_address: {
-        first_name: shipping.name?.split(' ')[0] || '',
-        last_name: shipping.name?.split(' ')[1] || '',
+        first_name: firstName,
+        last_name: lastName,
         address1: shippingAddress.line1 || '',
         address2: shippingAddress.line2 || '',
         city: shippingAddress.city || '',
+        province: shippingAddress.state || '',
         zip: shippingAddress.postal_code || '',
         country: shippingAddress.country || '',
-        province: shippingAddress.state || '',
         phone: customerDetails.phone || '',
       },
       billing_address: {
-        first_name: shipping.name?.split(' ')[0] || '',
-        last_name: shipping.name?.split(' ')[1] || '',
+        first_name: firstName,
+        last_name: lastName,
         address1: shippingAddress.line1 || '',
         address2: shippingAddress.line2 || '',
         city: shippingAddress.city || '',
+        province: shippingAddress.state || '',
         zip: shippingAddress.postal_code || '',
         country: shippingAddress.country || '',
-        province: shippingAddress.state || '',
         phone: customerDetails.phone || '',
       },
-      line_items: [
-        {
-          title: "Stripe P24 Order",
-          price: session.amount_total / 100,
-          quantity: 1,
-        },
-      ],
-      use_customer_default_address: false,
-    },
+      note: "Paid via Stripe Checkout using P24",
+    }
   };
 
   try {
     const response = await axios.post(
-      `https://2495e7.myshopify.com/admin/api/2023-01/draft_orders.json`,
+      `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2023-01/orders.json`,
       orderData,
       {
         headers: {
           'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_TOKEN,
-          'Content-Type': 'application/json',
-        },
+          'Content-Type': 'application/json'
+        }
       }
     );
 
-    console.log("✅ Shopify draft order created:", response.data.draft_order.id);
+    console.log("✅ Live Shopify order created:", response.data.order.id);
   } catch (error) {
     console.error("❌ Shopify Order Creation Error:", error.response?.data || error.message);
     throw new Error("Failed to create Shopify order");
   }
 }
+
 
 
 app.post("/create-checkout-session", async (req, res) => {
@@ -130,6 +152,7 @@ app.post("/create-checkout-session", async (req, res) => {
     phone_number_collection: {
       enabled: true
     },
+    customer_creation: 'always',
     shipping_options: total_amount >= 15000
       ? [
         {
