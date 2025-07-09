@@ -9,19 +9,73 @@ app.use(cors());
 app.use(express.json());
 
 app.post("/create-checkout-session", async (req, res) => {
-  const { items, customer_email } = req.body;
+  const { items, customer_email, total_amount } = req.body;
 
-  const session = await stripe.checkout.sessions.create({
-    payment_method_types: ['p24'],
-    mode: 'payment',
-    line_items: items,
-    customer_email,
-    success_url: 'https://luxenordique.com/success',
-    cancel_url: 'https://luxenordique.com/cart',
-  });
+  try {
+    const shippingOptions = [];
 
-  res.json({ url: session.url });
+    if (total_amount >= 15000) {
+      // Free shipping for orders >= 150 zł
+      shippingOptions.push({
+        shipping_rate_data: {
+          type: "fixed_amount",
+          fixed_amount: { amount: 0, currency: "pln" },
+          display_name: "Darmowa dostawa DPD",
+          delivery_estimate: {
+            minimum: { unit: "business_day", value: 3 },
+            maximum: { unit: "business_day", value: 8 }
+          }
+        }
+      });
+    } else {
+      // Paid shipping options for orders < 150 zł
+      shippingOptions.push(
+        {
+          shipping_rate_data: {
+            type: "fixed_amount",
+            fixed_amount: { amount: 3500, currency: "pln" },
+            display_name: "DPD – Dostawa ekspresowa",
+            delivery_estimate: {
+              minimum: { unit: "business_day", value: 2 },
+              maximum: { unit: "business_day", value: 5 }
+            }
+          }
+        },
+        {
+          shipping_rate_data: {
+            type: "fixed_amount",
+            fixed_amount: { amount: 2000, currency: "pln" },
+            display_name: "DPD – Dostawa standardowa",
+            delivery_estimate: {
+              minimum: { unit: "business_day", value: 3 },
+              maximum: { unit: "business_day", value: 8 }
+            }
+          }
+        }
+      );
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['p24'],
+      mode: 'payment',
+      customer_email,
+      line_items: items,
+      shipping_address_collection: {
+        allowed_countries: ['PL']
+      },
+      shipping_options: shippingOptions,
+      success_url: 'https://luxenordique.com/success',
+      cancel_url: 'https://luxenordique.com/cart',
+    });
+
+    res.json({ url: session.url });
+
+  } catch (err) {
+    console.error("Stripe Checkout Error:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
+
 
 
 //session route
