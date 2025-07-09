@@ -8,7 +8,7 @@ const axios = require("axios");
 app.use(cors());
 
 // Handle webhook before express.json()
-app.post("/webhook", express.raw({ type: 'application/json' }), (req, res) => {
+app.post("/webhook", express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
 
@@ -20,13 +20,23 @@ app.post("/webhook", express.raw({ type: 'application/json' }), (req, res) => {
   }
 
   if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    console.log("✅ Payment successful. Session ID:", session.id);
-    createShopifyOrder(session);
+    const rawSession = event.data.object;
+
+    try {
+      const session = await stripe.checkout.sessions.retrieve(rawSession.id, {
+        expand: ['shipping', 'customer_details'],
+      });
+
+      console.log("✅ Payment successful. Session ID:", session.id);
+      await createShopifyOrder(session);
+    } catch (err) {
+      console.error("❌ Failed to retrieve full session:", err.message);
+    }
   }
 
   res.status(200).send('Webhook received');
 });
+
 
 // After webhook, now apply json parser
 app.use(express.json());
@@ -35,30 +45,61 @@ app.use(express.json());
 async function createShopifyOrder(session) {
   console.log("Creating Shopify order for session:", session.id);
 
+  const shipping = session.shipping || {};
+  const shippingAddress = shipping.address || {};
+  const customerDetails = session.customer_details || {};
+
   const orderData = {
     draft_order: {
-      email: session.customer_details.email,
+      email: customerDetails.email,
       note: "Paid via Przelewy24 using Stripe Checkout",
+      customer: {
+        first_name: shipping.name?.split(' ')[0] || '',
+        last_name: shipping.name?.split(' ')[1] || '',
+        phone: customerDetails.phone || '',
+      },
+      shipping_address: {
+        first_name: shipping.name?.split(' ')[0] || '',
+        last_name: shipping.name?.split(' ')[1] || '',
+        address1: shippingAddress.line1 || '',
+        address2: shippingAddress.line2 || '',
+        city: shippingAddress.city || '',
+        zip: shippingAddress.postal_code || '',
+        country: shippingAddress.country || '',
+        province: shippingAddress.state || '',
+        phone: customerDetails.phone || '',
+      },
+      billing_address: {
+        first_name: shipping.name?.split(' ')[0] || '',
+        last_name: shipping.name?.split(' ')[1] || '',
+        address1: shippingAddress.line1 || '',
+        address2: shippingAddress.line2 || '',
+        city: shippingAddress.city || '',
+        zip: shippingAddress.postal_code || '',
+        country: shippingAddress.country || '',
+        province: shippingAddress.state || '',
+        phone: customerDetails.phone || '',
+      },
       line_items: [
         {
           title: "Stripe P24 Order",
           price: session.amount_total / 100,
-          quantity: 1
-        }
+          quantity: 1,
+        },
       ],
-      use_customer_default_address: true
-    }
+      use_customer_default_address: false,
+    },
   };
 
   try {
     const response = await axios.post(
-      `https://2495e7.myshopify.com/admin/api/2023-01/draft_orders.json`, // ✅ fixed endpoint
+      `https://2495e7.myshopify.com/admin/api/2023-01/draft_orders.json`,
       orderData,
       {
         headers: {
           'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_TOKEN,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+        },
       }
     );
 
@@ -81,8 +122,13 @@ app.post("/create-checkout-session", async (req, res) => {
   const sessionData = {
     payment_method_types: ['p24'],
     mode: 'payment',
+    customer_creation: 'always',
     shipping_address_collection: {
-      allowed_countries: ['PL'],
+      allowed_countries: ['PL'], // or other countries
+    },
+    billing_address_collection: 'required', // or 'auto'
+    phone_number_collection: {
+      enabled: true
     },
     shipping_options: total_amount >= 15000
       ? [
