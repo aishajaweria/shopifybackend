@@ -24,7 +24,7 @@ app.post("/webhook", express.raw({ type: 'application/json' }), (req, res) => {
     console.log("✅ Payment successful. Session ID:", session.id);
     createShopifyOrder(session);
   }
-  
+
   res.status(200).send('Webhook received');
 });
 
@@ -33,7 +33,7 @@ app.use(express.json());
 
 async function createShopifyOrder(session) {
   const shopifyToken = process.env.SHOPIFY_ADMIN_TOKEN;
-  
+
   const orderData = {
     order: {
       email: session.customer_details.email,
@@ -48,7 +48,7 @@ async function createShopifyOrder(session) {
       note: "Paid via Przelewy24 using Stripe Checkout"
     }
   };
-  
+
   try {
     await axios.post(
       `https://luxenordique.com/admin/api/2023-01/orders.json`,
@@ -67,7 +67,7 @@ async function createShopifyOrder(session) {
 }
 app.post("/create-checkout-session", async (req, res) => {
   const { items, customer_email, total_amount } = req.body;
-  
+
   if (!items || items.length === 0 || !total_amount) {
     return res.status(400).json({ error: "Missing items or total amount." });
   }
@@ -81,42 +81,42 @@ app.post("/create-checkout-session", async (req, res) => {
     },
     shipping_options: total_amount >= 15000
       ? [
-          {
-            shipping_rate_data: {
-              type: 'fixed_amount',
-              fixed_amount: { amount: 0, currency: 'pln' },
-              display_name: 'Darmowa dostawa DPD',
-              delivery_estimate: {
-                minimum: { unit: 'business_day', value: 3 },
-                maximum: { unit: 'business_day', value: 8 },
-              },
+        {
+          shipping_rate_data: {
+            type: 'fixed_amount',
+            fixed_amount: { amount: 0, currency: 'pln' },
+            display_name: 'Darmowa dostawa DPD',
+            delivery_estimate: {
+              minimum: { unit: 'business_day', value: 3 },
+              maximum: { unit: 'business_day', value: 8 },
             },
           },
-        ]
+        },
+      ]
       : [
-          {
-            shipping_rate_data: {
-              type: 'fixed_amount',
-              fixed_amount: { amount: 2000, currency: 'pln' },
-              display_name: 'DPD – Dostawa standardowa',
-              delivery_estimate: {
-                minimum: { unit: 'business_day', value: 3 },
-                maximum: { unit: 'business_day', value: 8 },
-              },
+        {
+          shipping_rate_data: {
+            type: 'fixed_amount',
+            fixed_amount: { amount: 2000, currency: 'pln' },
+            display_name: 'DPD – Dostawa standardowa',
+            delivery_estimate: {
+              minimum: { unit: 'business_day', value: 3 },
+              maximum: { unit: 'business_day', value: 8 },
             },
           },
-          {
-            shipping_rate_data: {
-              type: 'fixed_amount',
-              fixed_amount: { amount: 3500, currency: 'pln' },
-              display_name: 'DPD – Dostawa ekspresowa',
-              delivery_estimate: {
-                minimum: { unit: 'business_day', value: 2 },
-                maximum: { unit: 'business_day', value: 5 },
-              },
+        },
+        {
+          shipping_rate_data: {
+            type: 'fixed_amount',
+            fixed_amount: { amount: 3500, currency: 'pln' },
+            display_name: 'DPD – Dostawa ekspresowa',
+            delivery_estimate: {
+              minimum: { unit: 'business_day', value: 2 },
+              maximum: { unit: 'business_day', value: 5 },
             },
           },
-        ],
+        },
+      ],
     line_items: items,
     success_url: 'https://luxenordique.com/pages/success?session_id={CHECKOUT_SESSION_ID}',
     cancel_url: 'https://luxenordique.com/cart',
@@ -149,13 +149,16 @@ app.get("/order-details", async (req, res) => {
 
   try {
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ['line_items', 'shipping_cost'],
+      expand: ['line_items', 'shipping', 'shipping.rate'],
     });
+
 
     res.json({
       customer_email: session.customer_details?.email || 'Not provided',
       amount_total: session.amount_total,
-      shipping_option: session.shipping_cost?.shipping_rate?.display_name || 'Not selected',
+      shipping_option: session.shipping?.rate?.display_name || 'Not selected',
+      shipping_address: session.shipping?.address || 'Not provided',
+      payment_status: session.payment_status,
       items: session.line_items?.data.map(item => ({
         description: item.description,
         quantity: item.quantity
