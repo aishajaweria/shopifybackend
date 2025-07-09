@@ -82,11 +82,11 @@ app.post("/create-checkout-session", async (req, res) => {
 
 
 //session route
-const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 // Handle webhook before express.json()
 app.post("/webhook", express.raw({ type: 'application/json' }), (req, res) => {
   const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
   let event;
 
   try {
