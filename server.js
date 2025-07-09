@@ -149,14 +149,16 @@ app.get("/order-details", async (req, res) => {
 
   try {
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ['line_items', 'shipping', 'shipping.rate'],
+      expand: ['line_items', 'shipping_cost.shipping_rate', 'shipping'],
     });
+
 
 
     res.json({
       customer_email: session.customer_details?.email || 'Not provided',
       amount_total: session.amount_total,
-      shipping_option: session.shipping?.rate?.display_name || 'Not selected',
+      shipping_option: session.shipping_cost?.shipping_rate?.display_name || 'Not selected',
+      shipping_cost: session.shipping_cost?.shipping_rate?.fixed_amount?.amount || 0,
       shipping_address: session.shipping?.address || 'Not provided',
       payment_status: session.payment_status,
       items: session.line_items?.data.map(item => ({
