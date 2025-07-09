@@ -6,7 +6,6 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const axios = require("axios");
 
 app.use(cors());
-app.use(express.json());
 
 app.post("/create-checkout-session", async (req, res) => {
   const { items, customer_email, total_amount } = req.body;
