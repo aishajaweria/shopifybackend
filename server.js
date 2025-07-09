@@ -31,7 +31,6 @@ app.post("/webhook", express.raw({ type: 'application/json' }), (req, res) => {
 // After webhook, now apply json parser
 app.use(express.json());
 
-const axios = require("axios");
 
 async function createShopifyOrder(session) {
   console.log("Creating Shopify order for session:", session.id);
