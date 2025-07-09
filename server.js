@@ -61,7 +61,7 @@ app.post("/create-checkout-session", async (req, res) => {
           },
         ],
     line_items: items,
-    success_url: 'https://shopifybackend-production-669f.up.railway.app/order-details?session_id=${sessionId}',
+    success_url: `https://shopifybackend-production-669f.up.railway.app/order-details?session_id=${sessionId}`,
     cancel_url: 'https://luxenordique.com/cart',
   };
 
