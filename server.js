@@ -9,70 +9,71 @@ app.use(cors());
 app.use(express.json());
 
 app.post("/create-checkout-session", async (req, res) => {
-  console.log("📥 Received request:", req.body);
-
   const { items, customer_email, total_amount } = req.body;
 
-  // ✅ Basic validation
   if (!items || items.length === 0 || !total_amount) {
     return res.status(400).json({ error: "Missing items or total amount." });
   }
 
-  // ✅ Determine shipping options based on total
-  const shippingOptions = total_amount >= 15000
-    ? [
-        {
-          shipping_rate_data: {
-            type: 'fixed_amount',
-            fixed_amount: { amount: 0, currency: 'pln' },
-            display_name: 'Darmowa dostawa DPD',
-            delivery_estimate: {
-              minimum: { unit: 'business_day', value: 3 },
-              maximum: { unit: 'business_day', value: 8 },
+  // Build the base session data
+  const sessionData = {
+    payment_method_types: ['p24'],
+    mode: 'payment',
+    shipping_address_collection: {
+      allowed_countries: ['PL'],
+    },
+    shipping_options: total_amount >= 15000
+      ? [
+          {
+            shipping_rate_data: {
+              type: 'fixed_amount',
+              fixed_amount: { amount: 0, currency: 'pln' },
+              display_name: 'Darmowa dostawa DPD',
+              delivery_estimate: {
+                minimum: { unit: 'business_day', value: 3 },
+                maximum: { unit: 'business_day', value: 8 },
+              },
             },
           },
-        },
-      ]
-    : [
-        {
-          shipping_rate_data: {
-            type: 'fixed_amount',
-            fixed_amount: { amount: 2000, currency: 'pln' },
-            display_name: 'DPD – Dostawa standardowa',
-            delivery_estimate: {
-              minimum: { unit: 'business_day', value: 3 },
-              maximum: { unit: 'business_day', value: 8 },
+        ]
+      : [
+          {
+            shipping_rate_data: {
+              type: 'fixed_amount',
+              fixed_amount: { amount: 2000, currency: 'pln' },
+              display_name: 'DPD – Dostawa standardowa',
+              delivery_estimate: {
+                minimum: { unit: 'business_day', value: 3 },
+                maximum: { unit: 'business_day', value: 8 },
+              },
             },
           },
-        },
-        {
-          shipping_rate_data: {
-            type: 'fixed_amount',
-            fixed_amount: { amount: 3500, currency: 'pln' },
-            display_name: 'DPD – Dostawa ekspresowa',
-            delivery_estimate: {
-              minimum: { unit: 'business_day', value: 2 },
-              maximum: { unit: 'business_day', value: 5 },
+          {
+            shipping_rate_data: {
+              type: 'fixed_amount',
+              fixed_amount: { amount: 3500, currency: 'pln' },
+              display_name: 'DPD – Dostawa ekspresowa',
+              delivery_estimate: {
+                minimum: { unit: 'business_day', value: 2 },
+                maximum: { unit: 'business_day', value: 5 },
+              },
             },
           },
-        },
-      ];
+        ],
+    line_items: items,
+    success_url: 'https://luxenordique.com/success',
+    cancel_url: 'https://luxenordique.com/cart',
+  };
+
+  // ✅ Only add email if it's valid
+  if (customer_email && customer_email.includes('@')) {
+    sessionData.customer_email = customer_email;
+  } else {
+    console.log("ℹ️ Email not available. Proceeding without it.");
+  }
 
   try {
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['p24'],
-      mode: 'payment',
-      shipping_address_collection: {
-        allowed_countries: ['PL'], // Poland only
-      },
-      shipping_options: shippingOptions,
-      line_items: items,
-      customer_email,
-      success_url: 'https://luxenordique.com/success',
-      cancel_url: 'https://luxenordique.com/cart',
-    });
-
-    console.log("✅ Session created:", session.id);
+    const session = await stripe.checkout.sessions.create(sessionData);
     res.json({ url: session.url });
   } catch (err) {
     console.error("❌ Stripe Checkout Error:", err.message);
