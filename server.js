@@ -31,13 +31,15 @@ app.post("/webhook", express.raw({ type: 'application/json' }), (req, res) => {
 // After webhook, now apply json parser
 app.use(express.json());
 
+const axios = require("axios");
+
 async function createShopifyOrder(session) {
-  const shopifyToken = process.env.SHOPIFY_ADMIN_TOKEN;
+  console.log("Creating Shopify order for session:", session.id);
 
   const orderData = {
-    order: {
+    draft_order: {
       email: session.customer_details.email,
-      financial_status: "paid",
+      note: "Paid via Przelewy24 using Stripe Checkout",
       line_items: [
         {
           title: "Stripe P24 Order",
@@ -45,42 +47,29 @@ async function createShopifyOrder(session) {
           quantity: 1
         }
       ],
-      note: "Paid via Przelewy24 using Stripe Checkout"
+      use_customer_default_address: true
     }
   };
 
   try {
-    await axios.post(
-      `https://luxenordique.com/admin/api/2023-01/draft_orders.json`,
-      {
-        draft_order: {
-          email: session.customer_details.email,
-          note: "Paid via Przelewy24 using Stripe Checkout",
-          line_items: [
-            {
-              title: "Stripe P24 Order",
-              price: session.amount_total / 100,
-              quantity: 1
-            }
-          ],
-          use_customer_default_address: true
-        }
-      },
+    const response = await axios.post(
+      `https://luxenordique.myshopify.com/admin/api/2023-01/draft_orders.json`, // ✅ fixed endpoint
+      orderData,
       {
         headers: {
-          'X-Shopify-Access-Token': shopifyToken,
+          'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_TOKEN,
           'Content-Type': 'application/json'
         }
       }
-
     );
-  }
-  catch (error) {
-    console.error("❌ Shopify Order Creation Error:", error.message);
+
+    console.log("✅ Shopify draft order created:", response.data.draft_order.id);
+  } catch (error) {
+    console.error("❌ Shopify Order Creation Error:", error.response?.data || error.message);
     throw new Error("Failed to create Shopify order");
   }
-  console.log("✅ Shopify order created successfully.");
 }
+
 
 app.post("/create-checkout-session", async (req, res) => {
   const { items, customer_email, total_amount } = req.body;
