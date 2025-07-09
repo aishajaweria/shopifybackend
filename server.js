@@ -52,7 +52,7 @@ async function createShopifyOrder(session) {
 
   try {
     const response = await axios.post(
-      `https://luxenordique.myshopify.com/admin/api/2023-01/draft_orders.json`, // ✅ fixed endpoint
+      `https://2495e7.myshopify.com/admin/api/2023-01/draft_orders.json`, // ✅ fixed endpoint
       orderData,
       {
         headers: {
