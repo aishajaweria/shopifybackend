@@ -7,9 +7,67 @@ const axios = require("axios");
 
 app.use(cors());
 
+// Handle webhook before express.json()
+app.post("/webhook", express.raw({ type: 'application/json' }), (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error("❌ Webhook Error:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    console.log("✅ Payment successful. Session ID:", session.id);
+    createShopifyOrder(session);
+  }
+  
+  res.status(200).send('Webhook received');
+});
+
+// After webhook, now apply json parser
+app.use(express.json());
+
+async function createShopifyOrder(session) {
+  const shopifyToken = process.env.SHOPIFY_ADMIN_TOKEN;
+  
+  const orderData = {
+    order: {
+      email: session.customer_details.email,
+      financial_status: "paid",
+      line_items: [
+        {
+          title: "Stripe P24 Order",
+          price: session.amount_total / 100,
+          quantity: 1
+        }
+      ],
+      note: "Paid via Przelewy24 using Stripe Checkout"
+    }
+  };
+  
+  try {
+    await axios.post(
+      `https://luxenordique.com/admin/api/2023-01/orders.json`,
+      orderData,
+      {
+        headers: {
+          'X-Shopify-Access-Token': shopifyToken,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    console.log("✅ Shopify Order Created");
+  } catch (error) {
+    console.error("❌ Shopify Order Creation Failed", error.response.data);
+  }
+}
 app.post("/create-checkout-session", async (req, res) => {
   const { items, customer_email, total_amount } = req.body;
-
+  
   if (!items || items.length === 0 || !total_amount) {
     return res.status(400).json({ error: "Missing items or total amount." });
   }
@@ -81,66 +139,6 @@ app.post("/create-checkout-session", async (req, res) => {
 });
 
 
-//session route
-
-// Handle webhook before express.json()
-app.post("/webhook", express.raw({ type: 'application/json' }), (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error("❌ Webhook Error:", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    console.log("✅ Payment successful. Session ID:", session.id);
-    createShopifyOrder(session);
-  }
-
-  res.status(200).send('Webhook received');
-});
-
-// After webhook, now apply json parser
-app.use(express.json());
-
-async function createShopifyOrder(session) {
-  const shopifyToken = process.env.SHOPIFY_ADMIN_TOKEN;
-
-  const orderData = {
-    order: {
-      email: session.customer_details.email,
-      financial_status: "paid",
-      line_items: [
-        {
-          title: "Stripe P24 Order",
-          price: session.amount_total / 100,
-          quantity: 1
-        }
-      ],
-      note: "Paid via Przelewy24 using Stripe Checkout"
-    }
-  };
-
-  try {
-    await axios.post(
-      `https://luxenordique.com/admin/api/2023-01/orders.json`,
-      orderData,
-      {
-        headers: {
-          'X-Shopify-Access-Token': shopifyToken,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-    console.log("✅ Shopify Order Created");
-  } catch (error) {
-    console.error("❌ Shopify Order Creation Failed", error.response.data);
-  }
-}
 
 app.get("/order-details", async (req, res) => {
   const sessionId = req.query.session_id;
