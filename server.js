@@ -155,7 +155,7 @@ app.post("/create-checkout-session", async (req, res) => {
   };
 
   const sessionData = {
-    payment_method_types: ['p24', 'card'],
+    payment_method_types: ['p24'],
     mode: 'payment',
     customer_creation: 'always',
     locale: isPolish ? 'pl' : 'en', // Set Stripe's UI language
