@@ -141,143 +141,89 @@ app.post("/create-checkout-session", async (req, res) => {
   const { items, customer_email, total_amount, language = 'en' } = req.body;
   const isPolish = language.startsWith('pl');
 
-  // Validate input more strictly
-  if (!Array.isArray(items) || items.length === 0 || typeof total_amount !== 'number') {
-    return res.status(400).json({ 
-      error: isPolish ? "Nieprawidłowe dane koszyka" : "Invalid cart data",
-      error_code: "invalid_cart"
-    });
+  if (!items || items.length === 0 || !total_amount) {
+    return res.status(400).json({ error: isPolish ? "Brakujące przedmioty lub suma." : "Missing items or total amount." });
   }
 
-  // Localized content
+  // Localized strings
   const translations = {
     free_shipping: isPolish ? 'Darmowa dostawa DPD' : 'Free DPD Shipping',
     standard_shipping: isPolish ? 'DPD – Dostawa standardowa' : 'DPD – Standard Shipping',
     express_shipping: isPolish ? 'DPD – Dostawa ekspresowa' : 'DPD – Express Shipping',
-    submit_message: isPolish ? 'Przekierowanie do Przelewy24...' : 'Redirecting to Przelewy24...',
-    shipping_message: isPolish ? 'Dostawa do Polski' : 'Shipping to Poland'
+    success_url: isPolish ? 'https://luxenordique.com/pl/pages/sukces' : 'https://luxenordique.com/pages/success',
+    cancel_url: isPolish ? 'https://luxenordique.com/pl/koszyk' : 'https://luxenordique.com/cart'
   };
 
-  // Base session configuration
   const sessionData = {
     payment_method_types: ['p24'],
     mode: 'payment',
-    locale: isPolish ? 'pl' : 'en',
     customer_creation: 'always',
-    metadata: {
-      shopify_integration: 'p24',
-      prevent_shopify_redirect: 'true' // Critical for preventing Shopify interference
-    },
-    consent_collection: {
-      terms_of_service: 'required'
-    },
-    custom_text: {
-      submit: { message: translations.submit_message },
-      shipping_address: { message: translations.shipping_message }
-    },
+    locale: isPolish ? 'pl' : 'en', // Set Stripe's UI language
     shipping_address_collection: {
-      allowed_countries: ['PL']
+      allowed_countries: ['PL', 'GB', 'US'], // Add more as needed
     },
+    billing_address_collection: 'required',
     phone_number_collection: { enabled: true },
-    invoice_creation: { enabled: false }
+    custom_text: {
+      submit: {
+        message: isPolish ? 'Zostaniesz przekierowany do Przelewy24' : 'You will be redirected to Przelewy24'
+      },
+      shipping_address: {
+        message: isPolish ? 'Dostawa dostępna tylko w Polsce' : 'Shipping available only to Poland'
+      }
+    },
+    shipping_options: total_amount >= 15000
+      ? [{
+          shipping_rate_data: {
+            type: 'fixed_amount',
+            fixed_amount: { amount: 0, currency: 'pln' },
+            display_name: translations.free_shipping,
+            delivery_estimate: {
+              minimum: { unit: 'business_day', value: 3 },
+              maximum: { unit: 'business_day', value: 8 },
+            },
+          },
+        }]
+      : [
+        {
+          shipping_rate_data: {
+            type: 'fixed_amount',
+            fixed_amount: { amount: 2000, currency: 'pln' },
+            display_name: translations.standard_shipping,
+            delivery_estimate: {
+              minimum: { unit: 'business_day', value: 3 },
+              maximum: { unit: 'business_day', value: 8 },
+            },
+          },
+        },
+        {
+          shipping_rate_data: {
+            type: 'fixed_amount',
+            fixed_amount: { amount: 3500, currency: 'pln' },
+            display_name: translations.express_shipping,
+            delivery_estimate: {
+              minimum: { unit: 'business_day', value: 2 },
+              maximum: { unit: 'business_day', value: 5 },
+            },
+          },
+        },
+      ],
+    line_items: items,
+    success_url: `${translations.success_url}?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: translations.cancel_url,
   };
 
-  // Add shipping options
-  if (total_amount >= 15000) {
-    sessionData.shipping_options = [{
-      shipping_rate_data: {
-        type: 'fixed_amount',
-        fixed_amount: { amount: 0, currency: 'pln' },
-        display_name: translations.free_shipping,
-        delivery_estimate: {
-          minimum: { unit: 'business_day', value: 3 },
-          maximum: { unit: 'business_day', value: 8 }
-        }
-      }
-    }];
-  } else {
-    sessionData.shipping_options = [
-      {
-        shipping_rate_data: {
-          type: 'fixed_amount',
-          fixed_amount: { amount: 2000, currency: 'pln' },
-          display_name: translations.standard_shipping,
-          delivery_estimate: {
-            minimum: { unit: 'business_day', value: 3 },
-            maximum: { unit: 'business_day', value: 8 }
-          }
-        }
-      },
-      {
-        shipping_rate_data: {
-          type: 'fixed_amount',
-          fixed_amount: { amount: 3500, currency: 'pln' },
-          display_name: translations.express_shipping,
-          delivery_estimate: {
-            minimum: { unit: 'business_day', value: 2 },
-            maximum: { unit: 'business_day', value: 5 }
-          }
-        }
-      }
-    ];
-  }
-
-  // Process line items with validation
-  sessionData.line_items = items.map(item => {
-    if (!item.price_data || !item.price_data.currency || !item.price_data.product_data || !item.price_data.product_data.name) {
-      throw new Error(isPolish ? "Nieprawidłowe dane produktu" : "Invalid product data");
-    }
-    return {
-      price_data: {
-        currency: item.price_data.currency.toLowerCase(),
-        product_data: {
-          name: item.price_data.product_data.name,
-          metadata: {
-            shopify_product_id: item.price_data.product_data.metadata?.shopify_product_id || ''
-          }
-        },
-        unit_amount: Math.round(item.price_data.unit_amount)
-      },
-      quantity: item.quantity || 1
-    };
-  });
-
-  // Add customer email if valid
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer_email)) {
+  if (customer_email && customer_email.includes('@')) {
     sessionData.customer_email = customer_email;
   }
 
-  // Dynamic success/cancel URLs based on language
-  sessionData.success_url = `${process.env.SHOP_URL}/${isPolish ? 'pl' : 'en'}/pages/success?session_id={CHECKOUT_SESSION_ID}&success=true`;
-  sessionData.cancel_url = `${process.env.SHOP_URL}/${isPolish ? 'pl' : 'en'}/cart?cancelled=true`;
-
   try {
     const session = await stripe.checkout.sessions.create(sessionData);
-    
-    // Critical: Verify the session contains P24 payment method
-    if (!session.payment_method_types.includes('p24')) {
-      throw new Error(isPolish ? "Błąd konfiguracji P24" : "P24 configuration error");
-    }
-
-    res.json({ 
-      url: session.url,
-      session_id: session.id,
-      expires_at: session.expires_at
-    });
-    
+    res.json({ url: session.url });
   } catch (err) {
-    console.error("Stripe Session Creation Error:", {
-      error: err.message,
-      stack: err.stack,
-      request: req.body
-    });
-    
+    console.error("Stripe Checkout Error:", err);
     res.status(500).json({ 
-      error: isPolish ? "Błąd systemu płatności" : "Payment system error",
-      error_code: "payment_error",
-      user_message: isPolish ? 
-        "Przepraszamy, wystąpił błąd podczas przetwarzania płatności. Proszę spróbować ponownie." : 
-        "We're sorry, a payment processing error occurred. Please try again."
+      error: isPolish ? "Błąd podczas tworzenia płatności" : "Error creating payment" 
     });
   }
 });
