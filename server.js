@@ -150,8 +150,8 @@ app.post("/create-checkout-session", async (req, res) => {
     free_shipping: isPolish ? 'Darmowa dostawa DPD' : 'Free DPD Shipping',
     standard_shipping: isPolish ? 'DPD – Dostawa standardowa' : 'DPD – Standard Shipping',
     express_shipping: isPolish ? 'DPD – Dostawa ekspresowa' : 'DPD – Express Shipping',
-    success_url: isPolish ? 'https://luxenordique.com/pl/pages/sukces' : 'https://luxenordique.com/pages/success',
-    cancel_url: isPolish ? 'https://luxenordique.com/pl/koszyk' : 'https://luxenordique.com/cart'
+    success_url: 'https://luxenordique.com/pages/success',
+    cancel_url:  'https://luxenordique.com/cart'
   };
 
   const sessionData = {
