@@ -44,7 +44,7 @@ app.use(express.json());
 
 async function createShopifyOrder(session) {
   console.log("Creating LIVE Shopify order for session:", session.id);
-   const isPolish = session.locale === 'pl';
+  const isPolish = session.locale === 'pl';
 
   const shipping = session.shipping || {};
   const shippingAddress = shipping.address || {};
@@ -109,8 +109,8 @@ async function createShopifyOrder(session) {
         country: shippingAddress.country || '',
         phone: customerDetails.phone || '',
       },
-      note: isPolish ? 
-        "Zapłacono przez Stripe (Przelewy24)" : 
+      note: isPolish ?
+        "Zapłacono przez Stripe (Przelewy24)" :
         "Paid via Stripe (Przelewy24)",
       tags: isPolish ? ["Przelewy24"] : ["P24"]
     }
@@ -151,7 +151,7 @@ app.post("/create-checkout-session", async (req, res) => {
     standard_shipping: isPolish ? 'DPD – Dostawa standardowa' : 'DPD – Standard Shipping',
     express_shipping: isPolish ? 'DPD – Dostawa ekspresowa' : 'DPD – Express Shipping',
     success_url: 'https://luxenordique.com/pages/success',
-    cancel_url:  'https://luxenordique.com/cart'
+    cancel_url: 'https://luxenordique.com/cart'
   };
 
   const sessionData = {
@@ -172,42 +172,44 @@ app.post("/create-checkout-session", async (req, res) => {
         message: isPolish ? 'Dostawa dostępna tylko w Polsce' : 'Shipping available only to Poland'
       }
     },
-    shipping_options: total_amount >= 15000
-      ? [{
+    shipping_options: (() => {
+      const options = [];
+
+      // Express is always available
+      options.push({
+        shipping_rate_data: {
+          type: 'fixed_amount',
+          fixed_amount: { amount: 3500, currency: 'pln' },
+          display_name: isPolish
+            ? 'DPD – Dostawa ekspresowa (2–5 dni roboczych)'
+            : 'DPD – Express Shipping (2–5 business days)',
+          delivery_estimate: {
+            minimum: { unit: 'business_day', value: 2 },
+            maximum: { unit: 'business_day', value: 5 },
+          },
+        },
+      });
+
+      // Show free standard shipping only for orders ≥ 150 PLN
+      if (total_amount >= 15000) {
+        options.unshift({
           shipping_rate_data: {
             type: 'fixed_amount',
             fixed_amount: { amount: 0, currency: 'pln' },
-            display_name: translations.free_shipping,
+            display_name: isPolish
+              ? 'DPD – Dostawa standardowa (3–8 dni roboczych)'
+              : 'DPD – Standard Shipping (3–8 business days)',
             delivery_estimate: {
               minimum: { unit: 'business_day', value: 3 },
               maximum: { unit: 'business_day', value: 8 },
             },
           },
-        }]
-      : [
-        {
-          shipping_rate_data: {
-            type: 'fixed_amount',
-            fixed_amount: { amount: 2000, currency: 'pln' },
-            display_name: translations.standard_shipping,
-            delivery_estimate: {
-              minimum: { unit: 'business_day', value: 3 },
-              maximum: { unit: 'business_day', value: 8 },
-            },
-          },
-        },
-        {
-          shipping_rate_data: {
-            type: 'fixed_amount',
-            fixed_amount: { amount: 3500, currency: 'pln' },
-            display_name: translations.express_shipping,
-            delivery_estimate: {
-              minimum: { unit: 'business_day', value: 2 },
-              maximum: { unit: 'business_day', value: 5 },
-            },
-          },
-        },
-      ],
+        });
+      }
+
+      return options;
+    })(),
+
     line_items: items,
     success_url: `${translations.success_url}?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: translations.cancel_url,
@@ -222,8 +224,8 @@ app.post("/create-checkout-session", async (req, res) => {
     res.json({ url: session.url });
   } catch (err) {
     console.error("Stripe Checkout Error:", err);
-    res.status(500).json({ 
-      error: isPolish ? "Błąd podczas tworzenia płatności" : "Error creating payment" 
+    res.status(500).json({
+      error: isPolish ? "Błąd podczas tworzenia płatności" : "Error creating payment"
     });
   }
 });
@@ -241,13 +243,37 @@ app.get("/order-details", async (req, res) => {
       expand: ['line_items', 'shipping_cost.shipping_rate', 'shipping'],
     });
 
+    const isPolish = session.locale === 'pl';
+    const shippingRate = session.shipping_cost?.shipping_rate;
+    const shippingAmount = shippingRate?.fixed_amount?.amount || 0;
 
+    const shippingMethodName = (() => {
+      if (!shippingRate) return isPolish ? 'Nie wybrano' : 'Not selected';
+
+      const name = shippingRate.display_name?.toLowerCase() || "";
+
+      if (name.includes('standardowa') || name.includes('standard')) {
+        return isPolish
+          ? 'DPD – Dostawa standardowa (3–8 dni roboczych)'
+          : 'DPD – Standard Shipping (3–8 business days)';
+      }
+
+      if (name.includes('ekspresowa') || name.includes('express')) {
+        return isPolish
+          ? 'DPD – Dostawa ekspresowa (2–5 dni roboczych)'
+          : 'DPD – Express Shipping (2–5 business days)';
+      }
+
+      return shippingRate.display_name || (isPolish ? 'Nieznana opcja' : 'Unknown option');
+    })();
 
     res.json({
       customer_email: session.customer_details?.email || 'Not provided',
       amount_total: session.amount_total,
-      shipping_option: session.shipping_cost?.shipping_rate?.display_name || 'Not selected',
-      shipping_cost: session.shipping_cost?.shipping_rate?.fixed_amount?.amount || 0,
+      shipping_option: shippingMethodName,
+      shipping_cost: shippingAmount === 0 
+        ? (isPolish ? 'DARMOWA' : 'FREE')
+        : `zł ${(shippingAmount / 100).toFixed(2).replace('.', ',')}`,
       shipping_address: session.shipping?.address || 'Not provided',
       payment_status: session.payment_status,
       items: session.line_items?.data.map(item => ({
@@ -260,6 +286,7 @@ app.get("/order-details", async (req, res) => {
     res.status(500).json({ error: "Failed to retrieve order details" });
   }
 });
+
 
 app.get("/", (req, res) => {
   res.send("✅ Shopify Stripe backend is working!");
