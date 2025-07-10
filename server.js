@@ -44,6 +44,7 @@ app.use(express.json());
 
 async function createShopifyOrder(session) {
   console.log("Creating LIVE Shopify order for session:", session.id);
+   const isPolish = session.locale === 'pl';
 
   const shipping = session.shipping || {};
   const shippingAddress = shipping.address || {};
@@ -108,7 +109,10 @@ async function createShopifyOrder(session) {
         country: shippingAddress.country || '',
         phone: customerDetails.phone || '',
       },
-      note: "Paid via Stripe Checkout using P24",
+      note: isPolish ? 
+        "Zapłacono przez Stripe (Przelewy24)" : 
+        "Paid via Stripe (Przelewy24)",
+      tags: isPolish ? ["Przelewy24"] : ["P24"]
     }
   };
 
@@ -134,45 +138,58 @@ async function createShopifyOrder(session) {
 
 
 app.post("/create-checkout-session", async (req, res) => {
-  const { items, customer_email, total_amount } = req.body;
+  const { items, customer_email, total_amount, language = 'en' } = req.body;
+  const isPolish = language.startsWith('pl');
 
   if (!items || items.length === 0 || !total_amount) {
-    return res.status(400).json({ error: "Missing items or total amount." });
+    return res.status(400).json({ error: isPolish ? "Brakujące przedmioty lub suma." : "Missing items or total amount." });
   }
 
-  // Build the base session data
+  // Localized strings
+  const translations = {
+    free_shipping: isPolish ? 'Darmowa dostawa DPD' : 'Free DPD Shipping',
+    standard_shipping: isPolish ? 'DPD – Dostawa standardowa' : 'DPD – Standard Shipping',
+    express_shipping: isPolish ? 'DPD – Dostawa ekspresowa' : 'DPD – Express Shipping',
+    success_url: isPolish ? 'https://luxenordique.com/pl/pages/sukces' : 'https://luxenordique.com/pages/success',
+    cancel_url: isPolish ? 'https://luxenordique.com/pl/koszyk' : 'https://luxenordique.com/cart'
+  };
+
   const sessionData = {
-    payment_method_types: ['p24'],
+    payment_method_types: ['p24', 'card'],
     mode: 'payment',
     customer_creation: 'always',
+    locale: isPolish ? 'pl' : 'en', // Set Stripe's UI language
     shipping_address_collection: {
-      allowed_countries: ['PL'], // or other countries
+      allowed_countries: ['PL', 'GB', 'US'], // Add more as needed
     },
-    billing_address_collection: 'required', // or 'auto'
-    phone_number_collection: {
-      enabled: true
+    billing_address_collection: 'required',
+    phone_number_collection: { enabled: true },
+    custom_text: {
+      submit: {
+        message: isPolish ? 'Zostaniesz przekierowany do Przelewy24' : 'You will be redirected to Przelewy24'
+      },
+      shipping_address: {
+        message: isPolish ? 'Dostawa dostępna tylko w Polsce' : 'Shipping available only to Poland'
+      }
     },
-    customer_creation: 'always',
     shipping_options: total_amount >= 15000
-      ? [
-        {
+      ? [{
           shipping_rate_data: {
             type: 'fixed_amount',
             fixed_amount: { amount: 0, currency: 'pln' },
-            display_name: 'Darmowa dostawa DPD',
+            display_name: translations.free_shipping,
             delivery_estimate: {
               minimum: { unit: 'business_day', value: 3 },
               maximum: { unit: 'business_day', value: 8 },
             },
           },
-        },
-      ]
+        }]
       : [
         {
           shipping_rate_data: {
             type: 'fixed_amount',
             fixed_amount: { amount: 2000, currency: 'pln' },
-            display_name: 'DPD – Dostawa standardowa',
+            display_name: translations.standard_shipping,
             delivery_estimate: {
               minimum: { unit: 'business_day', value: 3 },
               maximum: { unit: 'business_day', value: 8 },
@@ -183,7 +200,7 @@ app.post("/create-checkout-session", async (req, res) => {
           shipping_rate_data: {
             type: 'fixed_amount',
             fixed_amount: { amount: 3500, currency: 'pln' },
-            display_name: 'DPD – Dostawa ekspresowa',
+            display_name: translations.express_shipping,
             delivery_estimate: {
               minimum: { unit: 'business_day', value: 2 },
               maximum: { unit: 'business_day', value: 5 },
@@ -192,26 +209,24 @@ app.post("/create-checkout-session", async (req, res) => {
         },
       ],
     line_items: items,
-    success_url: 'https://luxenordique.com/pages/success?session_id={CHECKOUT_SESSION_ID}',
-    cancel_url: 'https://luxenordique.com/cart',
+    success_url: `${translations.success_url}?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: translations.cancel_url,
   };
 
-  // ✅ Only add email if it's valid
   if (customer_email && customer_email.includes('@')) {
     sessionData.customer_email = customer_email;
-  } else {
-    console.log("ℹ️ Email not available. Proceeding without it.");
   }
 
   try {
     const session = await stripe.checkout.sessions.create(sessionData);
     res.json({ url: session.url });
   } catch (err) {
-    console.error("❌ Stripe Checkout Error:", err.message);
-    res.status(500).json({ error: err.message });
+    console.error("Stripe Checkout Error:", err);
+    res.status(500).json({ 
+      error: isPolish ? "Błąd podczas tworzenia płatności" : "Error creating payment" 
+    });
   }
 });
-
 
 
 app.get("/order-details", async (req, res) => {
