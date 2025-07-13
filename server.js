@@ -58,14 +58,21 @@ async function createShopifyOrder(session) {
 
   try {
     const sessionWithItems = await stripe.checkout.sessions.retrieve(session.id, {
-      expand: ['line_items']
+      expand: ['line_items.data.price.product']
     });
 
-    lineItems = sessionWithItems.line_items.data.map(item => ({
-      name: item.description || "Item",
-      quantity: item.quantity || 1,
-      price: item.amount_total / item.quantity / 100 || 0,
-    }));
+    lineItems = sessionWithItems.line_items.data.map(item => {
+      const metadata = item.price?.product?.metadata || {};
+
+      return {
+        name: item.description || "Item",
+        quantity: item.quantity || 1,
+        price: item.amount_total / item.quantity / 100 || 0,
+        size: metadata.size || 'N/A',
+        color: metadata.color || 'N/A',
+      };
+    });
+
   } catch (err) {
     console.warn("⚠️ Failed to expand line_items:", err.message);
     lineItems = [{
@@ -75,17 +82,21 @@ async function createShopifyOrder(session) {
     }];
   }
 
-  // ✅ Format for Shopify order endpoint
+  // ✅ Format Shopify order
   const orderData = {
     order: {
       email: customerDetails.email,
-      financial_status: "paid", // Marks order as paid
+      financial_status: "paid",
       send_receipt: true,
       send_fulfillment_receipt: false,
       line_items: lineItems.map(item => ({
         title: item.name,
         quantity: item.quantity,
         price: item.price,
+        properties: {
+          Size: item.size,
+          Color: item.color,
+        }
       })),
       shipping_address: {
         first_name: firstName,
@@ -109,9 +120,9 @@ async function createShopifyOrder(session) {
         country: shippingAddress.country || '',
         phone: customerDetails.phone || '',
       },
-      note: isPolish ?
-        "Zapłacono przez Stripe (Przelewy24)" :
-        "Paid via Stripe (Przelewy24)",
+      note: isPolish
+        ? "Zapłacono przez Stripe (Przelewy24)"
+        : "Paid via Stripe (Przelewy24)",
       tags: isPolish ? ["Przelewy24"] : ["P24"]
     }
   };
@@ -210,7 +221,20 @@ app.post("/create-checkout-session", async (req, res) => {
       return options;
     })(),
 
-    line_items: items,
+    line_items: items.map(item => ({
+      price_data: {
+        currency: 'pln',
+        product_data: {
+          name: item.name,
+          metadata: {
+            size: item.size,
+            color: item.color,
+          }
+        },
+        unit_amount: item.unit_amount,
+      },
+      quantity: item.quantity,
+    })),
     success_url: `${translations.success_url}?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: translations.cancel_url,
   };
@@ -271,7 +295,7 @@ app.get("/order-details", async (req, res) => {
       customer_email: session.customer_details?.email || 'Not provided',
       amount_total: session.amount_total,
       shipping_option: shippingMethodName,
-      shipping_cost: shippingAmount === 0 
+      shipping_cost: shippingAmount === 0
         ? (isPolish ? 'DARMOWA' : 'FREE')
         : `zł ${(shippingAmount / 100).toFixed(2).replace('.', ',')}`,
       shipping_address: session.shipping?.address || 'Not provided',
