@@ -24,7 +24,7 @@ app.post("/webhook", express.raw({ type: 'application/json' }), async (req, res)
 
     try {
       const session = await stripe.checkout.sessions.retrieve(rawSession.id, {
-        expand: ['line_items', 'shipping', 'customer_details'],
+        expand: ["line_items.data.price.product", "shipping", "customer_details"],
       });
 
       console.log("✅ Payment successful. Session ID:", session.id);
@@ -47,11 +47,14 @@ async function createShopifyOrder(session) {
   const isPolish = session.locale === 'pl';
 
   const shipping = session.shipping || {};
-  const shippingAddress = shipping.address || {};
+  const shippingAddress = shipping.address || customerDetails.address || {};
   const customerDetails = session.customer_details || {};
 
-  const [firstName = "", ...rest] = (shipping.name || "").split(" ");
+  const fullName = shipping.name || customerDetails.name || "";
+  const [firstName = "", ...rest] = fullName.split(" ");
   const lastName = rest.join(" ") || "";
+
+  
 
   // ✅ Retrieve line items from Stripe session
   let lineItems = [];
@@ -62,7 +65,7 @@ async function createShopifyOrder(session) {
     });
 
     lineItems = sessionWithItems.line_items.data.map(item => {
-      const metadata = item.price?.product?.metadata || {};
+      const metadata = item?.price?.product?.metadata || {};
 
       return {
         name: item.description || "Item",
@@ -79,6 +82,10 @@ async function createShopifyOrder(session) {
       name: "Stripe P24 Order",
       quantity: 1,
       price: session.amount_total / 100,
+      properties: {
+          Size: "N/A",
+          Color: "N/A",
+        },
     }];
   }
 
