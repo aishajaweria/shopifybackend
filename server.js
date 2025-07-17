@@ -24,7 +24,7 @@ app.post("/webhook", express.raw({ type: 'application/json' }), async (req, res)
 
     try {
       const session = await stripe.checkout.sessions.retrieve(rawSession.id, {
-        expand: ["line_items.data.price.product", "shipping", "customer_details"],
+        expand: ['line_items.data.price.product', 'shipping_cost.shipping_rate', 'shipping'],
       });
 
       console.log("✅ Payment successful. Session ID:", session.id);
@@ -47,14 +47,15 @@ async function createShopifyOrder(session) {
   const isPolish = session.locale === 'pl';
 
   const shipping = session.shipping || {};
-  const shippingAddress = shipping.address || customerDetails.address || {};
   const customerDetails = session.customer_details || {};
+  const shippingAddress = shipping.address || customerDetails.address || {};
+
 
   const fullName = shipping.name || customerDetails.name || "";
   const [firstName = "", ...rest] = fullName.split(" ");
   const lastName = rest.join(" ") || "";
 
-  
+
 
   // ✅ Retrieve line items from Stripe session
   let lineItems = [];
@@ -83,9 +84,9 @@ async function createShopifyOrder(session) {
       quantity: 1,
       price: session.amount_total / 100,
       properties: {
-          Size: "N/A",
-          Color: "N/A",
-        },
+        Size: "N/A",
+        Color: "N/A",
+      },
     }];
   }
 
@@ -176,9 +177,9 @@ app.post("/create-checkout-session", async (req, res) => {
     payment_method_types: ['p24'],
     mode: 'payment',
     customer_creation: 'always',
-    locale: isPolish ? 'pl' : 'en', // Set Stripe's UI language
+    locale: isPolish ? 'pl' : 'en',
     shipping_address_collection: {
-      allowed_countries: ['PL', 'GB', 'US'], // Add more as needed
+      allowed_countries: ['PL', 'GB', 'US'],
     },
     billing_address_collection: 'required',
     phone_number_collection: { enabled: true },
@@ -190,10 +191,29 @@ app.post("/create-checkout-session", async (req, res) => {
         message: isPolish ? 'Dostawa dostępna tylko w Polsce' : 'Shipping available only to Poland'
       }
     },
+
     shipping_options: (() => {
       const options = [];
 
-      // Express is always available
+      // Standard Shipping
+      options.push({
+        shipping_rate_data: {
+          type: 'fixed_amount',
+          fixed_amount: {
+            amount: total_amount >= 15000 ? 0 : 1800, // 0 if >=150 PLN, else 18 PLN
+            currency: 'pln'
+          },
+          display_name: isPolish
+            ? 'DPD – Dostawa standardowa (3–8 dni roboczych)'
+            : 'DPD – Standard Shipping (3–8 business days)',
+          delivery_estimate: {
+            minimum: { unit: 'business_day', value: 3 },
+            maximum: { unit: 'business_day', value: 8 }
+          }
+        }
+      });
+
+      // Express Shipping (always shown)
       options.push({
         shipping_rate_data: {
           type: 'fixed_amount',
@@ -203,27 +223,10 @@ app.post("/create-checkout-session", async (req, res) => {
             : 'DPD – Express Shipping (2–5 business days)',
           delivery_estimate: {
             minimum: { unit: 'business_day', value: 2 },
-            maximum: { unit: 'business_day', value: 5 },
-          },
-        },
+            maximum: { unit: 'business_day', value: 5 }
+          }
+        }
       });
-
-      // Show free standard shipping only for orders ≥ 150 PLN
-      if (total_amount >= 15000) {
-        options.unshift({
-          shipping_rate_data: {
-            type: 'fixed_amount',
-            fixed_amount: { amount: 0, currency: 'pln' },
-            display_name: isPolish
-              ? 'DPD – Dostawa standardowa (3–8 dni roboczych)'
-              : 'DPD – Standard Shipping (3–8 business days)',
-            delivery_estimate: {
-              minimum: { unit: 'business_day', value: 3 },
-              maximum: { unit: 'business_day', value: 8 },
-            },
-          },
-        });
-      }
 
       return options;
     })(),
@@ -242,6 +245,7 @@ app.post("/create-checkout-session", async (req, res) => {
       },
       quantity: item.quantity,
     })),
+
     success_url: `${translations.success_url}?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: translations.cancel_url,
   };
@@ -260,6 +264,7 @@ app.post("/create-checkout-session", async (req, res) => {
     });
   }
 });
+
 
 
 app.get("/order-details", async (req, res) => {
