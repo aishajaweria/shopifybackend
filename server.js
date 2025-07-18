@@ -66,7 +66,8 @@ async function createShopifyOrder(session) {
     });
 
     lineItems = sessionWithItems.line_items.data.map(item => {
-      const metadata = item?.price?.product?.metadata || {};
+      const metadata = item?.price?.product?.metadata || item?.price?.metadata || {};
+
 
       return {
         name: item.description || "Item",
@@ -92,6 +93,7 @@ async function createShopifyOrder(session) {
 
   // ✅ Format Shopify order
   const orderData = {
+
     order: {
       email: customerDetails.email,
       financial_status: "paid",
@@ -131,8 +133,17 @@ async function createShopifyOrder(session) {
       note: isPolish
         ? "Zapłacono przez Stripe (Przelewy24)"
         : "Paid via Stripe (Przelewy24)",
-      tags: isPolish ? ["Przelewy24"] : ["P24"]
-    }
+      tags: isPolish ? ["Przelewy24"] : ["P24"],
+      shipping_lines: [
+        {
+          title: isPolish
+            ? "DPD – Dostawa standardowa (3–8 dni roboczych)"
+            : "DPD – Standard Shipping (3–8 business days)",
+          price: session.shipping_cost?.shipping_rate?.fixed_amount?.amount / 100 || 0,
+          code: "standard_shipping"
+        }
+      ],
+    },
   };
 
   try {
@@ -164,15 +175,6 @@ app.post("/create-checkout-session", async (req, res) => {
     return res.status(400).json({ error: isPolish ? "Brakujące przedmioty lub suma." : "Missing items or total amount." });
   }
 
-  // Localized strings
-  const translations = {
-    free_shipping: isPolish ? 'Darmowa dostawa DPD' : 'Free DPD Shipping',
-    standard_shipping: isPolish ? 'DPD – Dostawa standardowa' : 'DPD – Standard Shipping',
-    express_shipping: isPolish ? 'DPD – Dostawa ekspresowa' : 'DPD – Express Shipping',
-    success_url: 'https://luxenordique.com/pages/success',
-    cancel_url: 'https://luxenordique.com/cart'
-  };
-
   const sessionData = {
     payment_method_types: ['p24'],
     mode: 'payment',
@@ -192,15 +194,15 @@ app.post("/create-checkout-session", async (req, res) => {
       }
     },
 
+    // ✅ SHIPPING OPTIONS (corrected logic)
     shipping_options: (() => {
       const options = [];
 
-      // Standard Shipping
-      options.push({
+      const standardShipping = {
         shipping_rate_data: {
           type: 'fixed_amount',
           fixed_amount: {
-            amount: total_amount >= 15000 ? 0 : 1800, // 0 if >=150 PLN, else 18 PLN
+            amount: total_amount >= 15000 ? 0 : 1800,
             currency: 'pln'
           },
           display_name: isPolish
@@ -211,10 +213,9 @@ app.post("/create-checkout-session", async (req, res) => {
             maximum: { unit: 'business_day', value: 8 }
           }
         }
-      });
+      };
 
-      // Express Shipping (always shown)
-      options.push({
+      const expressShipping = {
         shipping_rate_data: {
           type: 'fixed_amount',
           fixed_amount: { amount: 3500, currency: 'pln' },
@@ -226,28 +227,30 @@ app.post("/create-checkout-session", async (req, res) => {
             maximum: { unit: 'business_day', value: 5 }
           }
         }
-      });
+      };
 
+      options.push(standardShipping, expressShipping);
       return options;
     })(),
 
+    // ✅ Product metadata correctly passed
     line_items: items.map(item => ({
       price_data: {
         currency: 'pln',
+        unit_amount: item.unit_amount,
         product_data: {
           name: item.name,
           metadata: {
-            size: item.size,
-            color: item.color,
+            size: item.size || 'N/A',
+            color: item.color || 'N/A',
           }
-        },
-        unit_amount: item.unit_amount,
+        }
       },
       quantity: item.quantity,
     })),
 
-    success_url: `${translations.success_url}?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: translations.cancel_url,
+    success_url: `https://luxenordique.com/pages/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: 'https://luxenordique.com/cart',
   };
 
   if (customer_email && customer_email.includes('@')) {
@@ -264,6 +267,7 @@ app.post("/create-checkout-session", async (req, res) => {
     });
   }
 });
+
 
 
 
