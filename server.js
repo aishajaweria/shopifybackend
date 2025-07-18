@@ -67,6 +67,7 @@ async function createShopifyOrder(session) {
 
     lineItems = sessionWithItems.line_items.data.map(item => {
       const metadata = item?.price?.product?.metadata || item?.price?.metadata || {};
+      const variantId = metadata.variant_id || null;
 
 
       return {
@@ -75,6 +76,7 @@ async function createShopifyOrder(session) {
         price: item.amount_total / item.quantity / 100 || 0,
         size: metadata.size || 'N/A',
         color: metadata.color || 'N/A',
+        variant_id: variantId,
       };
     });
 
@@ -99,15 +101,25 @@ async function createShopifyOrder(session) {
       financial_status: "paid",
       send_receipt: true,
       send_fulfillment_receipt: false,
-      line_items: lineItems.map(item => ({
-        title: item.name,
-        quantity: item.quantity,
-        price: item.price,
-        properties: {
-          Size: item.size,
-          Color: item.color,
+      line_items: lineItems.map(item => {
+        const lineItem = {
+          quantity: item.quantity,
+          price: item.price,
+        };
+
+        if (item.variant_id) {
+          lineItem.variant_id = item.variant_id;
+        } else {
+          lineItem.title = item.name;
+          lineItem.properties = {
+            Size: item.size,
+            Color: item.color,
+          };
         }
-      })),
+
+        return lineItem;
+      }),
+
       shipping_address: {
         first_name: firstName,
         last_name: lastName,
@@ -243,6 +255,7 @@ app.post("/create-checkout-session", async (req, res) => {
           metadata: {
             size: item.size || 'N/A',
             color: item.color || 'N/A',
+             variant_id: item.variant_id || '',
           }
         }
       },
