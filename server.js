@@ -214,7 +214,7 @@ app.post("/create-checkout-session", async (req, res) => {
         shipping_rate_data: {
           type: 'fixed_amount',
           fixed_amount: {
-            amount: total_amount >= 15000 ? 0 : 1800,
+            amount: total_amount >= 17000 ? 0 : 1800,
             currency: 'pln'
           },
           display_name: isPolish
